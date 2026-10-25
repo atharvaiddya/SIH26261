@@ -1,33 +1,62 @@
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
+'use strict';
+const express = require('express');
+const cors    = require('cors');
+const path    = require('path');
+require('dotenv').config();
+
+const { initDB } = require('./db');
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-const upload = multer({
-    dest: "uploads/"
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+app.use('/api/applications', require('./routes/applications'));
+app.use('/api/documents',    require('./routes/documents'));
+app.use('/api/anomalies',    require('./routes/anomalies'));
+app.use('/api/compliance',   require('./routes/compliance'));
+app.use('/api/audit',        require('./routes/audit'));
+app.use('/api/dashboard',    require('./routes/dashboard'));
+
+app.get('/', (req, res) => {
+  res.json({
+    status:  'ok',
+    service: 'AICTE Setu Backend',
+    version: '1.0.0',
+    uptime:  process.uptime().toFixed(1) + 's',
+  });
 });
 
-app.get("/", (req, res) => {
-    res.json({
-        message: "OCR backend is running"
+app.use((req, res) => {
+  res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
+});
+
+app.use((err, req, res, _next) => {
+  console.error('[UNHANDLED]', err);
+  res.status(500).json({ error: err.message || 'Internal Server Error' });
+});
+
+const PORT = process.env.PORT || 3000;
+
+initDB()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`\n✅  AICTE Setu Backend — http://localhost:${PORT}`);
+      console.log(`    Frontend origin: http://localhost:5173`);
+      console.log(`    DB: ${process.env.DB_NAME || 'aicte_setu'} @ ${process.env.DB_HOST || 'localhost'}\n`);
     });
-});
-
-app.post("/ocr", upload.single("image"), (req, res) => {
-
-    console.log("Received image:");
-    console.log(req.file);
-
-    res.json({
-        message: "Image received",
-        filename: req.file.filename
+  })
+  .catch(err => {
+    console.warn(`\n⚠️  DB init failed (${err.message})`);
+    console.warn(`    Starting WITHOUT database — API will return 500 on DB routes.\n`);
+    app.listen(PORT, () => {
+      console.log(`⚠️  AICTE Setu Backend (no DB) — http://localhost:${PORT}`);
     });
-});
-
-app.listen(3000, () => {
-    console.log("Server running on http://localhost:3000");
-});
+  });

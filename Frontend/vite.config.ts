@@ -11,5 +11,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    proxy: {
+      // Proxy /api/* calls to the Express backend during development
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
   },
 });
