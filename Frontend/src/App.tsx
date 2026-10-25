@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LandingPage } from './components/LandingPage';
 import { LoginModal } from './components/LoginModal';
 import { DashboardLayout } from './components/Dashboard/DashboardLayout';
@@ -15,6 +15,15 @@ import {
   AuditLogEntry, 
   ReviewStatus 
 } from './types';
+import {
+  fetchApplications,
+  fetchAnomalies,
+  fetchRules,
+  fetchAuditLogs,
+  updateApplicationStatus as apiUpdateStatus,
+  toggleRule as apiToggleRule,
+  resolveAnomaly as apiResolveAnomaly,
+} from './api';
 
 export default function App() {
   // Screen state: 'landing' or 'dashboard'
@@ -26,11 +35,30 @@ export default function App() {
   const [officerName, setOfficerName] = useState<string>('Dr. Ramanathan S.');
   const [officerRole, setOfficerRole] = useState<string>('Senior Scrutiny Officer (RO Mumbai)');
 
-  // Main state data
+  // Main state data — initialised from mock data; replaced by API data on load
   const [applications, setApplications] = useState<ApplicationRecord[]>(INITIAL_APPLICATIONS);
   const [rules, setRules] = useState<ComplianceRule[]>(COMPLIANCE_RULES);
   const [anomalies, setAnomalies] = useState<AnomalyItem[]>(ANOMALIES_LIST);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(AUDIT_TRAIL);
+
+  // Attempt to load live data from backend on mount; silently fall back to mock data
+  useEffect(() => {
+    fetchApplications()
+      .then(data => { if (data?.length) setApplications(data as ApplicationRecord[]); })
+      .catch(() => { /* backend offline — mock data already in place */ });
+
+    fetchAnomalies()
+      .then(data => { if (data?.length) setAnomalies(data as AnomalyItem[]); })
+      .catch(() => {});
+
+    fetchRules()
+      .then(data => { if (data?.length) setRules(data as ComplianceRule[]); })
+      .catch(() => {});
+
+    fetchAuditLogs()
+      .then(data => { if (data?.length) setAuditLogs(data as AuditLogEntry[]); })
+      .catch(() => {});
+  }, []);
 
   // Handlers
   const handleOpenLogin = () => {
@@ -58,7 +86,7 @@ export default function App() {
     const targetApp = applications.find(a => a.id === appId);
     const instName = targetApp ? targetApp.institutionName : 'Institution';
 
-    // 1. Update application record
+    // 1. Update application record locally (optimistic update)
     setApplications(prev => prev.map(app => {
       if (app.id === appId) {
         return {
@@ -71,7 +99,7 @@ export default function App() {
       return app;
     }));
 
-    // 2. Generate cryptographic SHA-256 dummy signature
+    // 2. Generate cryptographic SHA-256 dummy signature for local audit entry
     const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
     const newAuditLog: AuditLogEntry = {
       id: `AUDIT-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -86,14 +114,21 @@ export default function App() {
     };
 
     setAuditLogs(prev => [newAuditLog, ...prev]);
+
+    // 3. Fire-and-forget to backend (also persists real audit log in DB)
+    apiUpdateStatus(appId, newStatus, notes, officerName, officerRole).catch(console.error);
   };
 
   const handleToggleRule = (ruleId: string) => {
     setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
+    // Sync with backend
+    apiToggleRule(ruleId).catch(console.error);
   };
 
   const handleResolveAnomaly = (anomalyId: string, status: AnomalyItem['resolutionStatus']) => {
     setAnomalies(prev => prev.map(a => a.id === anomalyId ? { ...a, resolutionStatus: status } : a));
+    // Sync with backend
+    apiResolveAnomaly(anomalyId, status).catch(console.error);
   };
 
   return (
